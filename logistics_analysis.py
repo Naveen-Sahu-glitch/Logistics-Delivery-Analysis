@@ -1,71 +1,78 @@
 
-# Logistics Delivery Performance and Delay Analysis
+from pathlib import Path
+import pandas as pd
 
-## Project Overview
-This project analyses historical e-commerce delivery data using Python.
-It measures delivery performance and explores patterns related to late deliveries.
+DATA_FILE = Path("data/olist_orders_dataset.csv")
 
-## Objectives
-- Calculate on-time and late delivery rates.
-- Measure average delivery time.
-- Calculate average delay among late orders.
-- Analyse monthly delivery performance.
-- Examine freight costs when data is available.
-- Support evidence-based logistics decisions.
+if not DATA_FILE.exists():
+    raise FileNotFoundError(
+        "Please put olist_orders_dataset.csv inside the data folder."
+    )
 
-## Dataset
-Brazilian E-Commerce Public Dataset by Olist.
+orders = pd.read_csv(DATA_FILE)
 
-Dataset: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
+date_columns = [
+    "order_purchase_timestamp",
+    "order_delivered_customer_date",
+    "order_estimated_delivery_date",
+]
 
-This is historical Brazilian data, not live Indian logistics data.
+for col in date_columns:
+    orders[col] = pd.to_datetime(
+        orders[col], errors="coerce"
+    )
 
-## Technologies
-- Python
-- Pandas
-- Matplotlib
-- Git and GitHub
+eligible = orders[
+    (orders["order_status"] == "delivered")
+    & orders["order_purchase_timestamp"].notna()
+    & orders["order_delivered_customer_date"].notna()
+    & orders["order_estimated_delivery_date"].notna()
+].copy()
 
-## Key Performance Indicators
-1. On-time delivery rate
-2. Late delivery rate
-3. Average delivery time
-4. Average delay days
-5. Average freight cost per eligible order
+eligible["delivery_time_days"] = (
+    eligible["order_delivered_customer_date"]
+    - eligible["order_purchase_timestamp"]
+).dt.total_seconds() / 86400
 
-## Installation
-Install dependencies:
+eligible["delay_days"] = (
+    eligible["order_delivered_customer_date"]
+    - eligible["order_estimated_delivery_date"]
+).dt.total_seconds() / 86400
 
-pip install -r requirements.txt
+eligible["is_late"] = eligible["delay_days"] > 0
 
-Download the Olist dataset and place the required CSV files inside
-the data/ folder.
+if eligible.empty:
+    raise ValueError("No eligible delivered orders found.")
 
-## Run the Project
-python logistics_analysis.py
+kpis = {
+    "Eligible delivered orders": len(eligible),
+    "On-time delivery rate (%)": (
+        (~eligible["is_late"]).mean() * 100
+    ),
+    "Late delivery rate (%)": (
+        eligible["is_late"].mean() * 100
+    ),
+    "Average delivery time (days)": (
+        eligible["delivery_time_days"].mean()
+    ),
+    "Average delay among late orders (days)": (
+        eligible.loc[
+            eligible["is_late"], "delay_days"
+        ].mean()
+    ),
+}
 
-## Output
-The script generates:
-- delivery_kpis.csv
-- monthly_delivery_kpis.csv
-- eligible_orders_with_delivery_features.csv
-- data_quality_summary.txt
-- delivery_performance.png
+print("\nLOGISTICS DELIVERY KPIs")
+for name, value in kpis.items():
+    print(f"{name}: {value:.2f}" if pd.notna(value) else f"{name}: N/A")
 
-## Methodology
-1. Data collection
-2. Data inspection
-3. Data cleaning
-4. KPI calculation
-5. Monthly analysis
-6. Data visualisation
-7. Interpretation and recommendations
+output_dir = Path("outputs")
+output_dir.mkdir(exist_ok=True)
 
-## Limitations
-The dataset is historical and Brazil-specific.
-Actual results must be calculated before making conclusions.
+pd.DataFrame(
+    list(kpis.items()),
+    columns=["KPI", "Value"]
+).to_csv(output_dir / "delivery_kpis.csv", index=False)
 
-## References
-https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
-https://pandas.pydata.org/docs/
-https://matplotlib.org/stable/
+print("\nKPI report saved in outputs/delivery_kpis.csv")
+    
